@@ -16,5 +16,5 @@ select
 	search_location,
 	"error",
 	error_message
-FROM 'data/raw/raw_job_postings_*.parquet'
+FROM {{source('raw', 'job_postings')}}
 where error is null
