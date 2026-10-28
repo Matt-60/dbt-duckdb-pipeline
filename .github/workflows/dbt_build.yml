@@ -19,6 +19,6 @@ jobs:
         working-directory: analytics
       - run: |
           gh release create warehouse --notes "Warehouse — auto-built by dbt" || true
-          gh release upload warehouse data/prod.duckdb --clobber
+          gh release upload warehouse analytics/data/prod.duckdb --clobber
         env:
           GH_TOKEN: ${{ github.token }}

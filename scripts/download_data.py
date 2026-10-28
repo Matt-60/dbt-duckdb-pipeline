@@ -25,7 +25,8 @@ MONTHS = [
 ]
 FILES = [f"raw_job_postings_{m}.parquet" for m in MONTHS] + ["raw_job_skills.parquet"]
 
-DATA_DIR = Path.cwd() / "data" / "raw"   # relative to where you RUN it
+# scripts/download_data.py → ../analytics/data/raw
+DATA_DIR = Path(__file__).resolve().parent.parent / "analytics" / "data" / "raw"
 
 if __name__ == "__main__":
     DATA_DIR.mkdir(parents=True, exist_ok=True)
