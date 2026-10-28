@@ -1,46 +1,51 @@
-# Automated Job Postings Pipeline (v1) - dbt + DuckDB
+# Automated Job Postings Pipeline - dbt + DuckDB
 
-[![dbt build & publish](https://github.com/lukebarousse/dbt_Analytics_Engineering_Course/actions/workflows/dbt_build.yml/badge.svg)](https://github.com/lukebarousse/dbt_Analytics_Engineering_Course/actions/workflows/dbt_build.yml)
-[![dbt Docs](https://img.shields.io/badge/dbt_docs-live-blue)](https://lukebarousse.github.io/dbt_Analytics_Engineering_Course/project1/)
+[![dbt build & publish](https://github.com/Matt-60/dbt-duckdb-pipeline/actions/workflows/dbt_build.yml/badge.svg)](https://github.com/Matt-60/dbt-duckdb-pipeline/actions/workflows/dbt_build.yml)
+[![dbt Docs](https://img.shields.io/badge/dbt_docs-live-blue)](https://matt-60.github.io/dbt-duckdb-pipeline/)
 
 ![dbt pipeline diagram](img/dbt_pipeline.png)
 
-A public dbt + DuckDB pipeline over ~692k real job postings, rebuilt and republished automatically on every push.
+A public dbt + DuckDB pipeline over real job postings, rebuilt and republished automatically by GitHub Actions.
 
-- Models the raw postings into tested, documented insight marts
+- Models raw postings into tested, documented insight marts
 - Publishes the docs site and the finished warehouse — open to anyone, no credentials
-- Runs itself on GitHub Actions: every push and every Monday
-
-> **v1 of this pipeline** — everything free and local-friendly: DuckDB as the warehouse, GitHub Actions as the scheduler. [v2](../project_2/) rebuilds it production-grade on Databricks.
+- Runs itself on GitHub Actions: every push to `master`, every Monday, or on demand
 
 | What I Built | How I Implemented | Where to Look |
 | --- | --- | --- |
-| **dbt pipeline** | sources → cleaned model → insight marts | [`analytics/models/`](analytics/models/) |
-| **Data tests** | `unique` / `not_null` on every mart grain | [`schema.yml`](analytics/models/schema.yml) |
-| **Hosted dbt docs** | lineage, descriptions, column tests | [Live docs site](https://lukebarousse.github.io/dbt_Analytics_Engineering_Course/project1/) |
-| **Public CI** | build + test + publish on every push | [Actions workflow](https://github.com/lukebarousse/dbt_Analytics_Engineering_Course/actions/workflows/dbt_build.yml) |
-| **Environments** | local `dev` vs CI `prod` targets | [`ci/profiles.yml`](ci/profiles.yml) |
-| **Published warehouse** | one `ATTACH`, queryable by anyone | [Query it](#query-the-published-warehouse) |
+| **dbt pipeline** | source → cleaned view → insight marts | [`analytics/models/`](analytics/models/) |
+| **Data tests** | `unique` / `not_null` on mart grains | [`schema.yml`](analytics/models/schema.yml) |
+| **Hosted dbt docs** | lineage, descriptions, column tests | [Live docs site](https://matt-60.github.io/dbt-duckdb-pipeline/) |
+| **CI/CD** | build + test + publish on GitHub Actions | [Actions workflow](https://github.com/Matt-60/dbt-duckdb-pipeline/actions/workflows/dbt_build.yml) |
+| **Profile** | committed DuckDB `prod` target | [`analytics/profiles.yml`](analytics/profiles.yml) |
+| **Published warehouse** | one `ATTACH`, queryable by anyone | [Query it](#-query-the-published-warehouse) |
 
 ---
 
 ## ⚙️ The dbt Pipeline
 
-Raw postings flow through three dbt layers — declared sources → cleaned staging views → insight marts — with tests gating every build. The DAG below is the whole flow:
+Raw parquet files are declared as a dbt source, cleaned in a single staging view, and aggregated into marts — with tests gating every build:
 
 ![dbt dag diagram](img/dag_pipeline.png)
 
-And the dbt features doing the work:
+| Model | Materialization | What it is |
+| --- | --- | --- |
+| `job_postings` | view | Cleaned postings — scraper error rows removed |
+| `jobs_per_month` | table | Posting counts per month and search role |
+| `monthly_summary` | table | One row per month: total vs remote postings, % remote |
+| `top_locations` | table | Top 10 locations by posting count |
+
+The dbt features doing the work:
 
 | dbt Feature | How I Used It |
 | --- | --- |
-| Declared sources (no hardcoded paths in SQL) | [`sources.yml`](analytics/models/sources.yml) + `source('raw', 'job_postings')` |
-| Model dependencies | `ref()` everywhere downstream; dbt resolves order and parallelism |
+| Declared sources (no hardcoded paths in models) | [`sources.yml`](analytics/models/sources.yml) + `source('raw', 'job_postings')` |
+| Model dependencies | `ref()` everywhere downstream; `monthly_summary` reads two parents (a diamond in the DAG) |
 | Materializations | project default `table`; staging override to `view` |
-| Data tests | `unique` / `not_null` on mart grains in [`schema.yml`](analytics/models/schema.yml) |
-| Environments | local `dev` vs CI `prod` targets ([`ci/profiles.yml`](ci/profiles.yml)) |
+| Data tests | `unique` / `not_null` in [`schema.yml`](analytics/models/schema.yml) |
+| Documentation | model and column descriptions persisted to the warehouse (`persist_docs`) |
 
-`dbt build` compiles SQL, materializes models, and fails the run if any test fails — same command locally and in CI.
+`dbt build` compiles SQL, materializes models, and fails the run if any test fails — the same command locally and in CI.
 
 ---
 
@@ -50,30 +55,28 @@ GitHub Actions runs the whole pipeline — no laptop required: [`.github/workflo
 
 | Trigger | What happens |
 | --- | --- |
-| Push to `main` | Full rebuild |
-| Weekly (Monday) | Scheduled rebuild — pipeline stays fresh |
-| Manual (`workflow_dispatch`) | Run button in the Actions UI |
+| Push to `master` | Full rebuild |
+| Weekly (Monday, 06:00 UTC) | Scheduled rebuild |
+| Manual (`workflow_dispatch`) | Run button in the Actions tab |
 
 On each run, Actions:
 
-1. Installs deps with `uv`
-2. Downloads raw parquet
-3. Runs `dbt build` with the committed CI profile (prod)
-4. Publishes `prod.duckdb` as a GitHub Release asset
-
-The badge at the top of this README links to the latest runs.
+1. Installs dependencies with `uv`
+2. Downloads the raw parquet files into `analytics/data/raw/`
+3. Runs `dbt build` with the committed profile (`prod` target)
+4. Publishes `prod.duckdb` as the `warehouse` GitHub Release asset
 
 ---
 
 ## 🦆 Query the published warehouse
 
-No clone required. [Install DuckDB](https://duckdb.org/docs/installation/) (`brew install duckdb`), then from a `duckdb` session:
+No clone required. [Install DuckDB](https://duckdb.org/docs/installation/) (`winget install DuckDB.cli` on Windows, `brew install duckdb` on macOS), then in a `duckdb` session:
 
 ```sql
 INSTALL httpfs;
 LOAD httpfs;
 
-ATTACH 'https://lukeb.co/dbt-warehouse' AS jobs;
+ATTACH 'https://github.com/Matt-60/dbt-duckdb-pipeline/releases/download/warehouse/prod.duckdb' AS jobs;
 USE jobs;
 SHOW TABLES;
 
@@ -81,22 +84,23 @@ SELECT * FROM top_locations;
 SELECT * FROM monthly_summary;
 ```
 
-> The short link is just a convenience — the database itself lives at the release asset URL, which works in `ATTACH` directly (use this form in your own README):
-> `https://github.com/lukebarousse/dbt_Analytics_Engineering_Course/releases/download/warehouse/prod.duckdb`
+> `job_postings` is a view over the raw parquet files, so it only works where those files exist (locally or in CI). The mart tables above are self-contained.
 
 ---
 
 ## 📖 Docs
 
-Docs are generated with `dbt docs generate` and published to GitHub Pages:
+The dbt docs site is served by GitHub Pages from the [`docs/`](docs/) folder:
 
-**→ [lukebarousse.github.io/dbt_Analytics_Engineering_Course/project1/](https://lukebarousse.github.io/dbt_Analytics_Engineering_Course/project1/)**
+**→ [matt-60.github.io/dbt-duckdb-pipeline](https://matt-60.github.io/dbt-duckdb-pipeline/)**
 
-The site shows:
+It shows:
 
-- The full **lineage graph** (sources → models → marts)
+- The full **lineage graph** (source → staging view → marts)
 - **Model and column descriptions** from the YAML
 - Which columns carry **tests**
+
+The site is generated locally with `dbt docs generate` and committed to `docs/` — regenerate and commit it after changing models or descriptions.
 
 ---
 
@@ -104,15 +108,21 @@ The site shows:
 
 ```bash
 uv sync
-uv run python scripts/download_data.py
-cd analytics && uv run dbt build
+uv run python scripts/download_data.py   # → analytics/data/raw/ (~85 MB)
+cd analytics
+uv run dbt build
 ```
 
-Optional docs locally:
+The warehouse lands in `analytics/data/prod.duckdb`. Browse it with:
 
 ```bash
-uv run dbt docs generate
-uv run dbt docs serve
+duckdb -readonly data/prod.duckdb
+```
+
+To preview the docs site locally:
+
+```bash
+python -m http.server 8000 -d docs   # then open http://localhost:8000
 ```
 
 ---
@@ -121,16 +131,17 @@ uv run dbt docs serve
 
 ```text
 .
-├── .github/workflows/dbt_build.yml   # public CI: build, test, publish
-├── ci/profiles.yml                   # prod DuckDB target for Actions
-├── data/                             # raw + warehouses (gitignored; CI regenerates)
-├── docs/                             # dbt docs site (GitHub Pages)
-├── analytics/
+├── .github/workflows/dbt_build.yml   # CI: build, test, publish
+├── analytics/                        # dbt project
 │   ├── dbt_project.yml
-│   └── models/                       # sources, staging, marts, schema.yml
+│   ├── profiles.yml                  # DuckDB prod target
+│   ├── data/                         # raw parquet + prod.duckdb (gitignored)
+│   └── models/                       # sources, models, schema.yml
+├── docs/                             # dbt docs site (GitHub Pages)
+├── img/                              # README diagrams
 └── scripts/download_data.py          # fetch raw parquet before build
 ```
 
 ---
 
-*Reference build for Project #1 of the [dbt for Data Analytics & Engineering course](https://www.lukebarousse.com) (lessons 1.01–2.02) — students build this repo themselves and compare against this version. Dataset: real job postings scraped daily.*
+*Built as Project #1 of the [dbt for Data Analytics & Engineering course](https://www.lukebarousse.com) by Luke Barousse. Dataset: real job postings, provided by the course.*
